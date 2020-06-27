@@ -1,8 +1,9 @@
 #include "pch.h"
 #include "hooking.h"
+#include <Windows.h>
+#include <Psapi.h>
 #define NMD_LDISASM_IMPLEMENTATION
 #include "nmd_ldisasm.h"
-#include <Windows.h>
 #include <cstdlib>
 
 uintptr_t exeStart = NULL;
