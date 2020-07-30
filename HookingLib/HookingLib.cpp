@@ -101,6 +101,13 @@ uintptr_t FindPattern(const char* pattern, const int offset)
 	return FindPatternEx(exeStart, exeLen, pattern, offset);
 }
 
+uintptr_t GetExeBase(void)
+{
+	if (!EnsureExe())
+		return NULL;
+	return exeStart;
+}
+
 uintptr_t FindPattern(const pattern& pattern)
 {
 	return FindPattern(pattern.pattern, pattern.offset);
@@ -175,6 +182,7 @@ uintptr_t InsertHookWithSkip(uintptr_t branchAddress, uintptr_t returnAddress, u
 	size_t skipLength = returnAddress - branchAddress;
 	size_t minHookLength = 0xe;
 	size_t clobberLength = 0;
+	size_t ptrLength = 0;
 	while (clobberLength < minHookLength) {
 		size_t nextInstrLength = nmd_x86_ldisasm((void*)(branchAddress + clobberLength), NMD_LDISASM_X86_MODE_64);
 		if (nextInstrLength == 0)
@@ -202,6 +210,68 @@ uintptr_t InsertHookWithSkip(uintptr_t branchAddress, uintptr_t returnAddress, u
 	if (!WriteLongJump(branchAddress, hook))
 		return NULL;
 	return actualRetAddr;
+}
+
+uintptr_t GetReferencedAddress(uintptr_t instruction)
+{
+	uint8_t opcode = *(uint8_t*)instruction;
+	int64_t offset = 0;
+	switch (opcode) {
+	case 0xe9:
+	case 0xe8:
+		offset = *(int32_t*)(instruction + 1);
+		offset += 5;
+		break;
+	case 0x70:
+	case 0x71:
+	case 0x72:
+	case 0x73:
+	case 0x74:
+	case 0x75:
+	case 0x76:
+	case 0x77:
+	case 0x78:
+	case 0x79:
+	case 0x7a:
+	case 0x7b:
+	case 0x7c:
+	case 0x7d:
+	case 0x7e:
+	case 0x7f:
+	case 0xeb:
+		offset = *(int8_t*)(instruction + 1);
+		offset += 2;
+		break;
+	case 0x0f:
+		instruction++;
+		opcode = *(uint8_t*)instruction;
+		switch (opcode) {
+			case 0x80:
+			case 0x81:
+			case 0x82:
+			case 0x83:
+			case 0x84:
+			case 0x85:
+			case 0x86:
+			case 0x87:
+			case 0x88:
+			case 0x89:
+			case 0x8a:
+			case 0x8b:
+			case 0x8c:
+			case 0x8d:
+			case 0x8e:
+			case 0x8f:
+				offset = *(int32_t*)(instruction + 1);
+				offset += 5;
+				break;
+			default:
+				return NULL;
+		}
+	default:
+		return NULL;
+	}
+	return instruction + offset;
 }
 
 bool WriteForeignMemory(uintptr_t target, void* source, size_t length)
