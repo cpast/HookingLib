@@ -8,6 +8,8 @@ struct pattern {
 	const char* pattern;
 	const int offset;
 };
+typedef struct pattern Pattern;
+
 uintptr_t FindPattern(const char* pattern, const int offset);
 uintptr_t FindPattern(const pattern &pattern);
 uintptr_t FindPatternEx(uintptr_t start, size_t len, const char* pattern, const int offset);
