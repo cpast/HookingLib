@@ -1,4 +1,4 @@
-#include "pch.h"
+#include "framework.h"
 #include "hooking.h"
 #include <Windows.h>
 #include <Psapi.h>
@@ -61,6 +61,8 @@ void CompilePattern(const char* ptnStr, uint8_t** ptnBytes, uint8_t** maskBytes,
 	int byteCount = (nibbleCount + 1) / 2;
 	uint8_t* pattern = (uint8_t*)malloc(byteCount);
 	uint8_t* mask = (uint8_t*)malloc(byteCount);
+	if (pattern == NULL || mask == NULL)
+		return;
 	memset(mask, 0, byteCount);
 	memset(pattern, 0, byteCount);
 	int ptnIdx = 0;
@@ -113,14 +115,9 @@ uintptr_t FindPattern(const pattern& pattern)
 	return FindPattern(pattern.pattern, pattern.offset);
 }
 
-uintptr_t FindPatternEx(uintptr_t start, size_t len, const char* ptnStr, const int offset)
+uintptr_t FindCompiledPattern(const uint8_t* pattern, const uint8_t* mask, size_t patternLength, const uint8_t* buffer, size_t bufferLength)
 {
 	size_t skip[256];
-	uint8_t* pattern;
-	uint8_t* mask;
-	uint8_t* buffer = (uint8_t*)start;
-	size_t patternLength;
-	CompilePattern(ptnStr, &pattern, &mask, &patternLength);
 	for (int i = 0; i < 256; i++) {
 		skip[i] = patternLength;
 	}
@@ -133,16 +130,28 @@ uintptr_t FindPatternEx(uintptr_t start, size_t len, const char* ptnStr, const i
 				if ((mask[i] & j) == (mask[i] & pattern[i]))
 					skip[j] = skipVal;
 	}
-	for (size_t idx = 0; idx + patternLength <= len; idx += skip[buffer[idx + patternLength - 1]]) {
+	for (size_t idx = 0; idx + patternLength <= bufferLength; idx += skip[buffer[idx + patternLength - 1]]) {
 		if (memptn(buffer + idx, pattern, mask, patternLength)) {
-			free(pattern);
-			free(mask);
-			return start + idx - offset;
+			return idx;
 		}
 	}
+	return -1;
+}
+
+uintptr_t FindPatternEx(uintptr_t start, size_t len, const char* ptnStr, const int offset)
+{
+	
+	uint8_t* pattern;
+	uint8_t* mask;
+	uint8_t* buffer = (uint8_t*)start;
+	size_t patternLength;
+	CompilePattern(ptnStr, &pattern, &mask, &patternLength);
+	uintptr_t relativeOffset = FindCompiledPattern(pattern, mask, patternLength, buffer, len);
 	free(pattern);
 	free(mask);
-	return NULL;
+	if (relativeOffset == -1)
+		return NULL;
+	return relativeOffset + start - offset;
 }
 
 uintptr_t FindPatternEx(uintptr_t start, size_t len, const pattern& pattern)
@@ -154,6 +163,7 @@ uintptr_t NopInstruction(uintptr_t address)
 {
 	size_t length = nmd_x86_ldisasm((void*)address, NMD_LDISASM_X86_MODE_64);
 	void* nops = malloc(length);
+	if (nops == NULL) return NULL;
 	memset(nops, 0x90, length);
 	bool success = WriteForeignMemory(address, nops, length);
 	free(nops);
@@ -212,10 +222,22 @@ uintptr_t InsertHookWithSkip(uintptr_t branchAddress, uintptr_t returnAddress, u
 	return actualRetAddr;
 }
 
+uintptr_t DecodeRM(uintptr_t rmbyte) {
+	uint8_t rm = *(uint8_t*)rmbyte;
+	if (rm >> 6 == 0 && (rm & 0x7) == 5) {
+		return rmbyte + 5 + *(int32_t*)(rmbyte + 1);
+	}
+	return NULL;
+}
+
 uintptr_t GetReferencedAddress(uintptr_t instruction)
 {
 	uint8_t opcode = *(uint8_t*)instruction;
 	int64_t offset = 0;
+	if (opcode == 0x48) {
+		instruction++;
+		opcode = *(uint8_t*)instruction;
+	}
 	switch (opcode) {
 	case 0xe9:
 	case 0xe8:
@@ -268,6 +290,13 @@ uintptr_t GetReferencedAddress(uintptr_t instruction)
 			default:
 				return NULL;
 		}
+		break;
+	case 0x88:
+	case 0x89:
+	case 0x8a:
+	case 0x8b:
+	case 0x8d:
+		return DecodeRM(instruction + 1);
 	default:
 		return NULL;
 	}
@@ -284,4 +313,49 @@ bool WriteForeignMemory(uintptr_t target, void* source, size_t length)
 	if (!VirtualProtect((void*)target, length, oldProtect, &newProtect))
 		return false;
 	return true;
+}
+
+bool isRttiLocator(uint32_t typeDescriptorFieldOffset) {
+	if (typeDescriptorFieldOffset > exeLen)
+		return false;
+	uint32_t locatorOffset = typeDescriptorFieldOffset - 0xc;
+	return (*(uint32_t*)(exeStart + typeDescriptorFieldOffset + 0x8) == locatorOffset);
+}
+
+
+
+uintptr_t GetClassVftable(const char* className)
+{
+	if (!EnsureExe())
+		return NULL;
+	size_t len = strlen(className) + 1;
+	uint8_t* mask = (uint8_t*) malloc(len);
+	if (mask == NULL)
+		return NULL;
+	memset(mask, 0xff, len);
+	uintptr_t stringOffset = FindCompiledPattern((const uint8_t*)className, mask, len, (uint8_t*)exeStart, exeLen);
+	free(mask);
+	if (stringOffset == -1)
+		return NULL;
+	uint32_t typeInfoOffset = (uint32_t)(stringOffset - 0x10);
+	uint32_t offsetMask = 0xffffffff;
+	uint32_t currentOffset = 0;
+	uintptr_t objLocatorLoc = FindCompiledPattern((uint8_t*)&typeInfoOffset, (uint8_t*)&offsetMask, 4, (uint8_t*)exeStart + currentOffset, exeLen - currentOffset);
+	while (objLocatorLoc != -1 && !isRttiLocator((uint32_t)objLocatorLoc + currentOffset)) {
+		currentOffset += (uint32_t)objLocatorLoc;
+		objLocatorLoc = FindCompiledPattern((uint8_t*)&typeInfoOffset, (uint8_t*)&offsetMask, 4, (uint8_t*)exeStart + currentOffset, exeLen - currentOffset);
+	}
+	if (objLocatorLoc == -1)
+		return NULL;
+	objLocatorLoc += currentOffset;
+	if (!isRttiLocator(objLocatorLoc))
+		return NULL;
+	objLocatorLoc -= 0xc;
+	objLocatorLoc += exeStart;
+	uint64_t objLocatorAddress = objLocatorLoc;
+	uint64_t addressMask = -1;
+	uintptr_t result = FindCompiledPattern((uint8_t*)&objLocatorAddress, (uint8_t*)&addressMask, 8, (uint8_t*)exeStart, exeLen);
+	if (result == -1)
+		return NULL;
+	return result + 8;
 }
