@@ -234,11 +234,16 @@ uintptr_t GetReferencedAddress(uintptr_t instruction)
 {
 	uint8_t opcode = *(uint8_t*)instruction;
 	int64_t offset = 0;
-	if (opcode == 0x48) {
+	if ((opcode & 0xf0) == 0x40) {
 		instruction++;
 		opcode = *(uint8_t*)instruction;
 	}
 	switch (opcode) {
+	case 0x00:
+	case 0x01:
+	case 0x02:
+	case 0x03:
+		return DecodeRM(instruction + 1);
 	case 0xe9:
 	case 0xe8:
 		offset = *(int32_t*)(instruction + 1);
