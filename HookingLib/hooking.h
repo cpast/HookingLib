@@ -20,6 +20,9 @@ uintptr_t InsertHookWithSkip(uintptr_t branchAddress, uintptr_t returnAddress, u
 uintptr_t GetReferencedAddress(uintptr_t instruction);
 uintptr_t GetExeBase(void);
 uintptr_t GetClassVftable(const char* className);
+uintptr_t InsertNearHook(uintptr_t address, uintptr_t hook);
+uintptr_t InsertNearHookWithSkip(uintptr_t branchAddress, uintptr_t returnAddress, uintptr_t hook);
+bool InitializeNearHooks();
 bool WriteForeignMemory(uintptr_t target, void* source, size_t length);
 
 #endif // ! HOOKING_LIB

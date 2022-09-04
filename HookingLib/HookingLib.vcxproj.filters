@@ -24,9 +24,15 @@
     <ClInclude Include="hooking.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="hooking_internal.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="HookingLib.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="alloc.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

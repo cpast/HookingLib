@@ -91,11 +91,13 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="hooking_internal.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="hooking.h" />
     <ClInclude Include="nmd_ldisasm.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="alloc.c" />
     <ClCompile Include="HookingLib.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

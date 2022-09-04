@@ -5,9 +5,14 @@
 #define NMD_LDISASM_IMPLEMENTATION
 #include "nmd_ldisasm.h"
 #include <cstdlib>
+#include "hooking_internal.h"
 
 uintptr_t exeStart = NULL;
 size_t exeLen = 0;
+
+uintptr_t trampolineRegion = NULL;
+ULONG trampolineSize = 0;
+int trampolineCount;
 
 HANDLE heap = NULL;
 
@@ -363,4 +368,74 @@ uintptr_t GetClassVftable(const char* className)
 	if (result == -1)
 		return NULL;
 	return result + 8;
+}
+
+bool InsertTrampoline(uintptr_t branchAddress, uintptr_t targetAddress)
+{
+	if (trampolineRegion == NULL)
+		return false;
+	uintptr_t trampStart = trampolineRegion + trampolineCount * 0xe;
+	if (trampStart - trampolineRegion > trampolineSize)
+		return false;
+	if (!WriteLongJump(trampStart, targetAddress))
+		return false;
+	uint32_t offset = (uint32_t)(trampStart - branchAddress);
+	offset -= 5;
+	uint8_t jump[5] = { 0 };
+	jump[0] = 0xe9;
+	memcpy(jump + 1, &offset, 4);
+	return WriteForeignMemory(branchAddress, jump);
+}
+
+uintptr_t InsertNearHook(uintptr_t address, uintptr_t hook)
+{
+	return InsertNearHookWithSkip(address, address, hook);
+}
+
+uintptr_t InsertNearHookWithSkip(uintptr_t branchAddress, uintptr_t returnAddress, uintptr_t hook)
+{
+	uintptr_t actualRetAddr = returnAddress;
+	size_t skipLength = returnAddress - branchAddress;
+	size_t minHookLength = 0x5;
+	size_t clobberLength = 0;
+	size_t ptrLength = 0;
+	while (clobberLength < minHookLength) {
+		size_t nextInstrLength = nmd_x86_ldisasm((void*)(branchAddress + clobberLength), NMD_LDISASM_X86_MODE_64);
+		if (nextInstrLength == 0)
+			return NULL;
+		clobberLength += nextInstrLength;
+	}
+	size_t copyLength = 0;
+	if (clobberLength > skipLength) {
+		copyLength = clobberLength - skipLength;
+	}
+
+	if (copyLength > 0) {
+		if (!EnsureHeap())
+			return NULL;
+		actualRetAddr = (uintptr_t)HeapAlloc(heap, 0, copyLength + minHookLength);
+		if (actualRetAddr == NULL)
+			return NULL;
+		memcpy((void*)actualRetAddr, (void*)returnAddress, copyLength);
+		if (!WriteLongJump(actualRetAddr + copyLength, returnAddress + copyLength)) {
+			HeapFree(heap, 0, (void*)actualRetAddr);
+			return NULL;
+		}
+	}
+
+	if (!InsertTrampoline(branchAddress, hook))
+		return NULL;
+	return actualRetAddr;
+}
+
+bool InitializeNearHooks()
+{
+	EnsureExe();
+	trampolineRegion = (uintptr_t)LhAllocateMemoryEx((void*)exeStart, &trampolineSize);
+	if (trampolineRegion == NULL)
+		return false;
+	DWORD oldProtect = 0;
+	if (!VirtualProtect((void*)trampolineRegion, trampolineSize, PAGE_EXECUTE_READ, &oldProtect))
+		return false;
+	return true;
 }
