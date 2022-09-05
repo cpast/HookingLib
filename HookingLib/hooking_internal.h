@@ -1,3 +1,3 @@
 #pragma once
-#include <windef.h>
+#include <windows.h>
 void* LhAllocateMemoryEx(void* InEntryPoint, ULONG* OutPageSize);

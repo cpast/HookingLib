@@ -23,7 +23,7 @@
 // Please visit https://easyhook.github.io for more information
 // about the project and latest updates.
 
-#include <sysinfoapi.h>
+#include "hooking_internal.h"
 
 ///////////////////////////////////////////////////////////////////////////////////
 /////////////////////// LhAllocateMemory

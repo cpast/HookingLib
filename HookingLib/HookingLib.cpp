@@ -384,7 +384,7 @@ bool InsertTrampoline(uintptr_t branchAddress, uintptr_t targetAddress)
 	uint8_t jump[5] = { 0 };
 	jump[0] = 0xe9;
 	memcpy(jump + 1, &offset, 4);
-	return WriteForeignMemory(branchAddress, jump);
+	return WriteForeignMemory(branchAddress, jump, 5);
 }
 
 uintptr_t InsertNearHook(uintptr_t address, uintptr_t hook)
